@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import pandas as pd
 import os
+import json
+
 
 class ExcelToJsonGUI:
     def __init__(self, root):
@@ -44,11 +46,7 @@ class ExcelToJsonGUI:
         self.column_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # ===== OUTPUT =====
-        # tk.Label(root, text="Output JSON Name:", bg="white").pack()
-
         self.output_name = tk.Entry(root)
-        # self.output_name.insert(0, "output.json")
-        # self.output_name.pack(pady=5)
 
         tk.Button(root, text="Convert", command=self.convert).pack(pady=15)
 
@@ -60,7 +58,6 @@ class ExcelToJsonGUI:
         self.file_path = path
         self.file_label.config(text=os.path.basename(path), fg="black")
 
-        # Try loading sheets
         try:
             xls = pd.ExcelFile(path)
             sheets = xls.sheet_names
@@ -68,22 +65,18 @@ class ExcelToJsonGUI:
             messagebox.showerror("Error", "Invalid Excel file")
             return
 
-        # Clear old sheet UI
         for widget in self.sheet_frame.winfo_children():
             widget.destroy()
 
-        # Show dropdown only if multiple sheets
         if len(sheets) > 1:
             tk.Label(self.sheet_frame, text="Select Sheet:", bg="white").pack(side="left")
 
             self.sheet_var.set(sheets[0])
             dropdown = tk.OptionMenu(self.sheet_frame, self.sheet_var, *sheets)
             dropdown.pack(side="left")
-
         else:
             self.sheet_var.set(sheets[0])
 
-        # Auto detect header
         self.auto_detect_header()
 
     def detect_header_row(self, df_preview):
@@ -128,7 +121,6 @@ class ExcelToJsonGUI:
 
         self.df = self.df.dropna(axis=1, how='all')
 
-        # Clear UI
         for widget in self.column_frame.winfo_children():
             widget.destroy()
 
@@ -154,6 +146,7 @@ class ExcelToJsonGUI:
             self.check_vars[col] = var
             self.rename_entries[col] = entry
 
+
     def convert(self):
         if self.df is None:
             messagebox.showerror("Error", "No data loaded")
@@ -176,51 +169,71 @@ class ExcelToJsonGUI:
         df_filtered = self.df[selected_cols].rename(columns=rename_map)
         data = df_filtered.dropna(how="all").to_dict(orient="records")
 
-        keys = list(df_filtered.columns)
+        
 
-        max_key_len = max(len(k) for k in keys)
-        max_val_len = {k: max(len(str(row.get(k, ""))) for row in data) for k in keys}
-
-        lines = ["["]
+        json_lines = ["["]
 
         for i, row in enumerate(data):
-            line = "    {  "
-            parts = []
+            obj = json.dumps(row, separators=(',', ':'))
 
-            for k in keys:
-                key_part = f'"{k}"'.ljust(max_key_len + 2)
-
-                val = row.get(k, "")
-                val_part = f'"{val}"' if isinstance(val, str) else str(val)
-                val_part = val_part.ljust(max_val_len[k] + 2)
-
-                parts.append(f"{key_part} : {val_part}")
-
-            line += " , ".join(parts) + "  }"
             if i < len(data) - 1:
-                line += ","
+                json_lines.append(f"    {obj},")
+            else:
+                json_lines.append(f"    {obj}")
 
-            lines.append(line)
+        json_lines.append("]")
 
-        lines.append("]")
+        json_output = "\n".join(json_lines)
 
-        output_file = self.output_name.get().strip()
-        if not output_file.endswith(".json"):
-            output_file += ".json"
-
-        # save_path = os.path.join(os.path.dirname(self.file_path), output_file)
         save_path = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json")],
             initialfile=self.output_name.get().strip() or "output.json"
         )
         if not save_path:
-            return  # user cancelled
-        
+            return
+
         with open(save_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+            f.write(json_output)
 
         messagebox.showinfo("Success", f"Saved:\n{save_path}")
+    # def convert(self):
+    #     if self.df is None:
+    #         messagebox.showerror("Error", "No data loaded")
+    #         return
+
+    #     selected_cols = []
+    #     rename_map = {}
+
+    #     for col, var in self.check_vars.items():
+    #         if var.get():
+    #             new_name = self.rename_entries[col].get().strip()
+    #             if new_name:
+    #                 selected_cols.append(col)
+    #                 rename_map[col] = new_name
+
+    #     if not selected_cols:
+    #         messagebox.showerror("Error", "No columns selected")
+    #         return
+
+    #     df_filtered = self.df[selected_cols].rename(columns=rename_map)
+    #     data = df_filtered.dropna(how="all").to_dict(orient="records")
+
+    #     # ✅ Clean JSON (line breaks, no extra spaces)
+    #     json_output = json.dumps(data, indent=4, separators=(',', ':'))
+
+    #     save_path = filedialog.asksaveasfilename(
+    #         defaultextension=".json",
+    #         filetypes=[("JSON files", "*.json")],
+    #         initialfile=self.output_name.get().strip() or "output.json"
+    #     )
+    #     if not save_path:
+    #         return
+
+    #     with open(save_path, "w", encoding="utf-8") as f:
+    #         f.write(json_output)
+
+    #     messagebox.showinfo("Success", f"Saved:\n{save_path}")
 
 
 if __name__ == "__main__":
