@@ -1,8 +1,4 @@
-# Python-Mini-Project
-Python Project
-
--------------------------------------------------------------
-# build
+build
 -------------------------------------------------------------
 
 pip install pyinstaller
@@ -20,7 +16,7 @@ pip install --upgrade pillow pyscreeze pyautogui
 
 
 --------------------------------------------------------------
-# download exe
+download exe
 
-ExcelToJSON    https://drive.google.com/file/d/157n0GQCAx_Kssj4N7a5xTI1gTBbVQUws/view?usp=sharing
+excelToJosn    https://drive.google.com/file/d/157n0GQCAx_Kssj4N7a5xTI1gTBbVQUws/view?usp=sharing
 ResolutionRResizer https://drive.google.com/file/d/1NGTlP9Qn6iKAnhr4VWk6fuP-pO54UtbZ/view?usp=sharing
