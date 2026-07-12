@@ -7,11 +7,16 @@ pyinstaller --onefile --noconsole scriptName.py
 pyinstaller --onefile --windowed your_script.py
 
 --------------------------------------------------------------
+
 pip install pandas
 pip install openpyxl
-pip install pandas openpyxl   
+pip install pandas openpyxl  
+
 pip install pillow
 pip install tkinterdnd2 pillow
+
+pip install customtkinter
+
 pip install --upgrade pillow pyscreeze pyautogui
 
 
