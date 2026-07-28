@@ -1,0 +1,11 @@
+{
+    "hold_min": 100,
+    "hold_max": 200,
+    "wait_min": 500,
+    "wait_max": 900,
+    "current_theme": "Modern Blue",
+    "win_x": 740,
+    "win_y": 290,
+    "overlay_x": 1690,
+    "overlay_y": 20
+}
