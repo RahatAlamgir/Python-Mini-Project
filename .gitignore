@@ -1,0 +1,15 @@
+# Ignore build and output directories
+build/
+dist/
+
+# Ignore PyInstaller spec files
+*.spec
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
