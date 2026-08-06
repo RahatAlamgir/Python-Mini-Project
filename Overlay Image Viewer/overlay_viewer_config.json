@@ -1,0 +1,19 @@
+{
+    "x": 428,
+    "y": 300,
+    "width": 485,
+    "height": 575,
+    "opacity": 90,
+    "transparency_enabled": false,
+    "max_quality_mode": false,
+    "show_mark": false,
+    "show_grid": false,
+    "grid_cols": 4,
+    "grid_rows": 5,
+    "grid_color_key": "black",
+    "always_on_top": true,
+    "snap_enabled": false,
+    "bg_color": "black",
+    "recent_images": [],
+    "last_image": null
+}
