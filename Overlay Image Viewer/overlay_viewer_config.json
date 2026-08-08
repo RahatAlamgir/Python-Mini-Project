@@ -1,8 +1,8 @@
 {
-    "x": 428,
-    "y": 300,
-    "width": 485,
-    "height": 575,
+    "x": 519,
+    "y": 435,
+    "width": 232,
+    "height": 516,
     "opacity": 90,
     "transparency_enabled": false,
     "max_quality_mode": false,
@@ -10,10 +10,11 @@
     "show_grid": false,
     "grid_cols": 4,
     "grid_rows": 5,
-    "grid_color_key": "black",
+    "grid_color_key": "white",
     "always_on_top": true,
     "snap_enabled": false,
-    "bg_color": "black",
+    "max_height_preset": 0.5,
+    "auto_hide_enabled": true,
     "recent_images": [],
     "last_image": null
 }

@@ -3,15 +3,15 @@ import os
 import json
 import shutil
 import requests
-from PySide6.QtCore import Qt, QPoint, QRect, QByteArray, QEvent
+from PySide6.QtCore import Qt, QPoint, QRect, QByteArray, QEvent, QTimer
 from PySide6.QtGui import (
     QPixmap, QImage, QDragEnterEvent, QDropEvent, QAction, QColor, 
-    QGuiApplication, QKeySequence, QShortcut, QPainter, QPen, QActionGroup,QIcon
+    QGuiApplication, QKeySequence, QShortcut, QPainter, QPen, QActionGroup, QIcon
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
-    QPushButton, QSlider, QMenu, QFileDialog, QSizeGrip, QGraphicsDropShadowEffect,
-    QListWidget, QListWidgetItem, QDialog, QMessageBox, QSplitter, QWidgetAction, QInputDialog
+    QPushButton, QSlider, QMenu, QFileDialog, QSizeGrip,
+    QListWidget, QListWidgetItem, QDialog, QMessageBox, QSplitter, QWidgetAction, QInputDialog, QFrame
 )
 
 # Base application directory
@@ -117,13 +117,36 @@ class ImageDisplayWidget(QLabel):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.show_mark = True
-        self.mark_color = QColor(239, 68, 68) # Modern high-visibility red
+        self.mark_color = QColor(239, 68, 68)
 
         # Grid settings
         self.show_grid = False
         self.grid_cols = 3
         self.grid_rows = 3
         self.grid_color_key = "white"
+
+        self.apply_empty_style(True)
+
+    def apply_empty_style(self, is_empty):
+        """Shows a solid dark background when no image is loaded."""
+        if is_empty:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #121214;
+                    border: 2px dashed #3F3F46;
+                    border-radius: 8px;
+                    color: #A1A1AA;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: transparent;
+                    border: none;
+                }
+            """)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -139,13 +162,11 @@ class ImageDisplayWidget(QLabel):
             grid_pen = QPen(color, 1, Qt.DashLine)
             painter.setPen(grid_pen)
 
-            # Vertical Grid Lines
             col_step = w / self.grid_cols
             for col in range(1, self.grid_cols):
                 x = int(col * col_step)
                 painter.drawLine(x, 0, x, h)
 
-            # Horizontal Grid Lines
             row_step = h / self.grid_rows
             for row in range(1, self.grid_rows):
                 y = int(row * row_step)
@@ -156,13 +177,11 @@ class ImageDisplayWidget(QLabel):
             center = self.rect().center()
             size = 12
             
-            # Black outline for crisp visibility on any background
             pen_outer = QPen(QColor(0, 0, 0, 200), 3.5)
             painter.setPen(pen_outer)
             painter.drawLine(center.x() - size, center.y(), center.x() + size, center.y())
             painter.drawLine(center.x(), center.y() - size, center.x(), center.y() + size)
             
-            # Inner crosshair line
             pen_inner = QPen(self.mark_color, 2)
             painter.setPen(pen_inner)
             painter.drawLine(center.x() - size, center.y(), center.x() + size, center.y())
@@ -178,7 +197,6 @@ class ImageManagerDialog(QDialog):
         self.setMinimumSize(620, 420)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
-        # Apply dark UI styling to dialog
         self.setStyleSheet("""
             QDialog {
                 background-color: #121214;
@@ -224,7 +242,6 @@ class ImageManagerDialog(QDialog):
         layout = QVBoxLayout(self)
         splitter = QSplitter(Qt.Horizontal, self)
 
-        # Left Panel
         left_widget = QWidget(self)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -237,7 +254,6 @@ class ImageManagerDialog(QDialog):
         left_layout.addWidget(list_label)
         left_layout.addWidget(self.image_list)
 
-        # Right Panel
         right_widget = QWidget(self)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -262,7 +278,6 @@ class ImageManagerDialog(QDialog):
         splitter.setSizes([220, 380])
         layout.addWidget(splitter, stretch=1)
 
-        # Bottom Actions
         btn_layout = QHBoxLayout()
 
         self.load_selected_btn = QPushButton("📂 Display in Overlay", self)
@@ -353,10 +368,7 @@ class ImageManagerDialog(QDialog):
             p for p in self.parent_viewer.recent_images if p != cached_path
         ]
         if self.parent_viewer.current_image_path == cached_path:
-            self.parent_viewer.current_image_path = None
-            self.parent_viewer.current_pixmap = None
-            self.parent_viewer.image_label.setText("Drag & Drop Image Here\nor double-click to fit ratio")
-            self.parent_viewer.title_label.setText("Overlay Viewer")
+            self.parent_viewer.clear_image()
 
         self.parent_viewer.rebuild_unified_menu()
         self.populate_list()
@@ -381,10 +393,7 @@ class ImageManagerDialog(QDialog):
                         print(f"Failed to delete {file_path}: {e}")
 
             self.parent_viewer.recent_images.clear()
-            self.parent_viewer.current_image_path = None
-            self.parent_viewer.current_pixmap = None
-            self.parent_viewer.image_label.setText("Drag & Drop Image Here\nor double-click to fit ratio")
-            self.parent_viewer.title_label.setText("Overlay Viewer")
+            self.parent_viewer.clear_image()
             self.parent_viewer.rebuild_unified_menu()
 
             self.populate_list()
@@ -394,15 +403,6 @@ class ImageManagerDialog(QDialog):
 
 
 class OverlayImageViewer(QWidget):
-    # Colors: Black = 100% #000000, White = 100% #FFFFFF
-    BG_COLORS = {
-        "black": "#000000",
-        "white": "#FFFFFF",
-        "blue": "#1E3A8A",
-        "red": "#7F1D1D",
-        "green": "#14532D"
-    }
-
     def __init__(self):
         super().__init__()
         
@@ -413,13 +413,22 @@ class OverlayImageViewer(QWidget):
         self.transparency_enabled = False
         self.max_quality_mode = True
         self.snap_enabled = True
-        self.current_bg_color = "black"
-        
+        self.max_height_preset = 0.0
+
         self.drag_position = QPoint()
         self.current_image_path = None
         self.current_pixmap = None
         self.snap_margin = 25
         self.snipper = None
+        
+        # Auto-hide toggles
+        self.auto_hide_enabled = True
+        self.controls_visible = True
+
+        # Auto-hide timer for controls, title bar, and border frame
+        self.hide_timer = QTimer(self)
+        self.hide_timer.setSingleShot(True)
+        self.hide_timer.timeout.connect(self.hide_controls)
 
         self.init_ui()
         self.load_config()
@@ -428,28 +437,25 @@ class OverlayImageViewer(QWidget):
     def init_ui(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumSize(150, 100)
+        self.setMinimumSize(180, 120)
         self.resize(500, 400)
 
-        # Reduced layout outer margins
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(4, 4, 4, 4)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
 
         self.container = QWidget(self)
         self.container.setObjectName("Container")
 
-        # Reduced container inner padding
         container_layout = QVBoxLayout(self.container)
         container_layout.setContentsMargins(4, 4, 4, 4)
         container_layout.setSpacing(2)
 
-        # Top Control Bar
-        self.control_bar = QHBoxLayout()
+        # Top Control Bar (Title Bar)
+        self.control_bar_container = QWidget(self.container)
+        self.control_bar = QHBoxLayout(self.control_bar_container)
         self.control_bar.setContentsMargins(2, 0, 2, 0)
 
         self.title_label = QLabel("Overlay Viewer", self)
-
-        # Context Menu initialized for right clicking on image
         self.unified_menu = QMenu(self)
 
         self.close_btn = QPushButton("✕", self)
@@ -460,21 +466,19 @@ class OverlayImageViewer(QWidget):
         self.control_bar.addStretch()
         self.control_bar.addWidget(self.close_btn)
 
-        container_layout.addLayout(self.control_bar)
+        container_layout.addWidget(self.control_bar_container)
 
-        # Custom Image Display Label with built-in crosshair & grid overlay
+        # Image Display Label
         self.image_label = ImageDisplayWidget("Drag & Drop Image Here\nor double-click to fit ratio", self)
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.installEventFilter(self)
-        
-        # Right click menu popup on image
         self.image_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_label.customContextMenuRequested.connect(self.show_context_menu)
         
         container_layout.addWidget(self.image_label, stretch=1)
 
-        # Bottom Bar
-        bottom_bar = QHBoxLayout()
+        # Bottom Bar Wrapper (Size Grip)
+        self.bottom_bar_container = QWidget(self.container)
+        bottom_bar = QHBoxLayout(self.bottom_bar_container)
         bottom_bar.setContentsMargins(0, 0, 0, 0)
         bottom_bar.addStretch()
 
@@ -482,16 +486,10 @@ class OverlayImageViewer(QWidget):
         self.size_grip.setFixedSize(12, 12)
         bottom_bar.addWidget(self.size_grip)
 
-        container_layout.addLayout(bottom_bar)
+        container_layout.addWidget(self.bottom_bar_container)
         self.main_layout.addWidget(self.container)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 160))
-        shadow.setOffset(0, 2)
-        self.container.setGraphicsEffect(shadow)
-
-        # Opacity Slider Setup
+        # Opacity Slider
         self.opacity_slider = QSlider(Qt.Vertical)
         self.opacity_slider.setRange(30, 100)
         self.opacity_slider.setValue(90)
@@ -508,6 +506,65 @@ class OverlayImageViewer(QWidget):
         self.shortcut_paste = QShortcut(QKeySequence.Paste, self)
         self.shortcut_paste.activated.connect(self.paste_image_from_clipboard)
 
+        self.apply_container_style()
+        
+        # Install global application event filter for reliable mouse tracking
+        QApplication.instance().installEventFilter(self)
+        self.setMouseTracking(True)
+        self.show_controls_temporarily()
+
+    # --- Global Application Mouse Tracking ---
+    def eventFilter(self, source, event):
+        if self.auto_hide_enabled:
+            if event.type() in (QEvent.MouseMove, QEvent.HoverMove, QEvent.MouseButtonPress, QEvent.Enter):
+                if self.underMouse() or self.rect().contains(self.mapFromGlobal(QGuiApplication.overrideCursor() or self.cursor().pos())):
+                    self.show_controls_temporarily()
+
+        if source == self.image_label and event.type() == QEvent.MouseButtonDblClick:
+            if event.button() == Qt.LeftButton:
+                self.fit_to_image_ratio()
+                return True
+
+        return super().eventFilter(source, event)
+
+    def show_controls_temporarily(self):
+        """Shows top control bar, border, and size grip for 3 seconds of inactivity."""
+        if not self.controls_visible:
+            self.controls_visible = True
+            self.control_bar_container.show()
+            self.bottom_bar_container.show()
+            self.apply_container_style()
+
+        if self.auto_hide_enabled:
+            self.hide_timer.start(3000)
+
+    def hide_controls(self):
+        """Hides top control bar, size grip, and window border/background upon timeout."""
+        if not self.auto_hide_enabled:
+            return
+
+        self.controls_visible = False
+        self.control_bar_container.hide()
+        self.bottom_bar_container.hide()
+        self.apply_container_style()
+
+    def toggle_auto_hide_mode(self, checked=None):
+        if checked is not None:
+            self.auto_hide_enabled = checked
+        else:
+            self.auto_hide_enabled = not self.auto_hide_enabled
+
+        if self.auto_hide_enabled:
+            self.show_controls_temporarily()
+        else:
+            self.hide_timer.stop()
+            self.controls_visible = True
+            self.control_bar_container.show()
+            self.bottom_bar_container.show()
+            self.apply_container_style()
+
+        self.rebuild_unified_menu()
+
     def show_context_menu(self, pos):
         """Displays options menu when right-clicking the image display area."""
         self.unified_menu.exec(self.image_label.mapToGlobal(pos))
@@ -517,27 +574,23 @@ class OverlayImageViewer(QWidget):
         self.apply_transparency_state()
 
     def apply_container_style(self):
-        bg_hex = self.BG_COLORS.get(self.current_bg_color, "#000000")
-        
-        # Pure contrast text logic for absolute background colors
-        if self.current_bg_color == "white":
-            text_color = "#000000"
-            subtext_color = "#333333"
-            border_color = "rgba(0, 0, 0, 0.3)"
-            btn_bg = "rgba(0, 0, 0, 0.08)"
-            btn_hover = "rgba(0, 0, 0, 0.15)"
+        text_color = "#FFFFFF"
+        subtext_color = "#A1A1AA"
+        btn_bg = "rgba(255, 255, 255, 0.12)"
+        btn_hover = "rgba(255, 255, 255, 0.22)"
+
+        if self.controls_visible:
+            bg_hex = "#000000" if self.current_pixmap else "#121214"
+            border_style = "1px solid rgba(255, 255, 255, 0.25)"
         else:
-            text_color = "#FFFFFF"
-            subtext_color = "#A1A1AA"
-            border_color = "rgba(255, 255, 255, 0.2)"
-            btn_bg = "rgba(255, 255, 255, 0.12)"
-            btn_hover = "rgba(255, 255, 255, 0.22)"
+            bg_hex = "transparent"
+            border_style = "none"
 
         self.container.setStyleSheet(f"""
             QWidget#Container {{
                 background-color: {bg_hex};
                 border-radius: 8px;
-                border: 1px solid {border_color};
+                border: {border_style};
             }}
             QLabel {{
                 color: {text_color};
@@ -546,7 +599,7 @@ class OverlayImageViewer(QWidget):
             QPushButton {{
                 background-color: {btn_bg};
                 color: {text_color};
-                border: 1px solid {border_color};
+                border: 1px solid rgba(255, 255, 255, 0.25);
                 border-radius: 4px;
                 padding: 2px 6px;
                 font-size: 11px;
@@ -596,19 +649,14 @@ class OverlayImageViewer(QWidget):
         """)
 
     # --- Mouse & Snapping ---
-    def eventFilter(self, source, event):
-        if source == self.image_label and event.type() == QEvent.MouseButtonDblClick:
-            if event.button() == Qt.LeftButton:
-                self.fit_to_image_ratio()
-                return True
-        return super().eventFilter(source, event)
-
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self.show_controls_temporarily()
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
+        self.show_controls_temporarily()
         if event.buttons() == Qt.LeftButton and not self.drag_position.isNull():
             target_pos = event.globalPosition().toPoint() - self.drag_position
             if self.snap_enabled:
@@ -639,6 +687,12 @@ class OverlayImageViewer(QWidget):
 
     def toggle_snap(self, checked):
         self.snap_enabled = checked
+
+    # --- Max Height Preset Logic ---
+    def set_max_height_preset(self, ratio):
+        self.max_height_preset = ratio
+        self.fit_to_image_ratio()
+        self.rebuild_unified_menu()
 
     # --- Grid Controls ---
     def toggle_grid(self, checked):
@@ -744,10 +798,22 @@ class OverlayImageViewer(QWidget):
         if not pixmap.isNull():
             self.current_image_path = cached_path
             self.current_pixmap = pixmap
+            self.image_label.apply_empty_style(False)
             self.fit_to_image_ratio()
             self.update_image_display()
             self.add_to_recents(cached_path)
             self.title_label.setText(os.path.basename(cached_path))
+            self.apply_container_style()
+
+    def clear_image(self):
+        """Clears current image selection and resets window background."""
+        self.current_image_path = None
+        self.current_pixmap = None
+        self.image_label.clear()
+        self.image_label.setText("Drag & Drop Image Here\nor double-click to fit ratio")
+        self.image_label.apply_empty_style(True)
+        self.title_label.setText("Overlay Viewer")
+        self.apply_container_style()
 
     def update_image_display(self):
         if self.current_pixmap and not self.current_pixmap.isNull():
@@ -819,11 +885,22 @@ class OverlayImageViewer(QWidget):
             return
 
         aspect_ratio = img_width / img_height
-        chrome_h = 40  # Reduced UI chrome height padding
-        chrome_w = 12  # Reduced UI chrome width padding
+        chrome_h = 40
+        chrome_w = 12
 
         screen = QGuiApplication.screenAt(self.pos()) or QGuiApplication.primaryScreen()
         work_area = screen.availableGeometry()
+
+        if self.max_height_preset > 0.0:
+            target_h = int(work_area.height() * self.max_height_preset)
+            content_h = target_h - chrome_h
+            content_w = int(content_h * aspect_ratio)
+            final_w = max(150, content_w + chrome_w)
+            
+            new_y = work_area.top() if self.max_height_preset == 1.0 else self.y()
+            self.setGeometry(self.x(), new_y, final_w, target_h)
+            return
+
         max_w = int(work_area.width() * 0.8)
         max_h = int(work_area.height() * 0.8)
 
@@ -868,11 +945,6 @@ class OverlayImageViewer(QWidget):
         dialog = ImageManagerDialog(self)
         dialog.exec()
 
-    # --- Dynamic Background Selector ---
-    def set_background_color(self, color_name):
-        self.current_bg_color = color_name
-        self.apply_container_style()
-
     # --- Unified Options Menu ---
     def add_to_recents(self, cached_path):
         if cached_path in self.recent_images:
@@ -909,6 +981,45 @@ class OverlayImageViewer(QWidget):
         self.unified_menu.addAction(manager_action)
 
         self.unified_menu.addSeparator()
+
+        # Auto-Hide Toggle Option (Context Menu Only)
+        auto_hide_action = QAction("👁 Toggle Auto-Hide UI", self)
+        auto_hide_action.setCheckable(True)
+        auto_hide_action.setChecked(self.auto_hide_enabled)
+        auto_hide_action.triggered.connect(self.toggle_auto_hide_mode)
+        self.unified_menu.addAction(auto_hide_action)
+
+        self.unified_menu.addSeparator()
+
+        # Height Presets
+        max_height_menu = QMenu("↕ Max Window Height Preset", self)
+        mh_group = QActionGroup(self)
+        mh_group.setExclusive(True)
+
+        mh_options = [
+            ("Disabled (Auto Fit)", 0.0),
+            ("10% Screen Height", 0.10),
+            ("20% Screen Height", 0.20),
+            ("30% Screen Height", 0.30),
+            ("40% Screen Height", 0.40),
+            ("50% Screen Height", 0.50),
+            ("60% Screen Height", 0.60),
+            ("70% Screen Height", 0.70),
+            ("80% Screen Height", 0.80),
+            ("90% Screen Height", 0.90),
+            ("100% Full Screen Height", 1.00)
+        ]
+
+        for label, ratio in mh_options:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            if self.max_height_preset == ratio:
+                action.setChecked(True)
+            action.triggered.connect(lambda checked=False, r=ratio: self.set_max_height_preset(r))
+            mh_group.addAction(action)
+            max_height_menu.addAction(action)
+
+        self.unified_menu.addMenu(max_height_menu)
 
         # Grid Submenu
         grid_menu = QMenu("📐 Grid Overlay", self)
@@ -981,22 +1092,6 @@ class OverlayImageViewer(QWidget):
         max_q_action.triggered.connect(self.toggle_max_quality_mode)
         self.unified_menu.addAction(max_q_action)
 
-        # Background Color Submenu
-        bg_submenu = QMenu("🎨 Background Color", self)
-        bg_group = QActionGroup(self)
-        bg_group.setExclusive(True)
-
-        for col_name in ["black", "white", "blue", "red", "green"]:
-            action = QAction(col_name.capitalize(), self)
-            action.setCheckable(True)
-            if self.current_bg_color == col_name:
-                action.setChecked(True)
-            action.triggered.connect(lambda checked=False, name=col_name: self.set_background_color(name))
-            bg_group.addAction(action)
-            bg_submenu.addAction(action)
-
-        self.unified_menu.addMenu(bg_submenu)
-
         # Transparency Submenu
         transparency_submenu = QMenu("👁 Transparency Settings", self)
         
@@ -1024,14 +1119,14 @@ class OverlayImageViewer(QWidget):
 
         self.unified_menu.addMenu(transparency_submenu)
 
-        # Always on Top
+        # Always on Top Toggle
         pin_action = QAction("📌 Always on Top (Pin)", self)
         pin_action.setCheckable(True)
         pin_action.setChecked(self.always_on_top)
         pin_action.triggered.connect(self.toggle_always_on_top)
         self.unified_menu.addAction(pin_action)
 
-        # Magnet Snap
+        # Magnet Snap Toggle
         snap_action = QAction("🧲 Magnet Snap to Edges", self)
         snap_action.setCheckable(True)
         snap_action.setChecked(self.snap_enabled)
@@ -1104,7 +1199,8 @@ class OverlayImageViewer(QWidget):
             "grid_color_key": self.image_label.grid_color_key,
             "always_on_top": self.always_on_top,
             "snap_enabled": self.snap_enabled,
-            "bg_color": self.current_bg_color,
+            "max_height_preset": self.max_height_preset,
+            "auto_hide_enabled": self.auto_hide_enabled,
             "recent_images": self.recent_images,
             "last_image": self.current_image_path
         }
@@ -1140,12 +1236,15 @@ class OverlayImageViewer(QWidget):
             self.image_label.grid_cols = config.get("grid_cols", 3)
             self.image_label.grid_rows = config.get("grid_rows", 3)
             self.image_label.grid_color_key = config.get("grid_color_key", "white")
-            self.current_bg_color = config.get("bg_color", "black")
+            self.max_height_preset = config.get("max_height_preset", 0.0)
 
             always_top = config.get("always_on_top", True)
             self.toggle_always_on_top(always_top)
 
             self.snap_enabled = config.get("snap_enabled", True)
+            
+            auto_hide = config.get("auto_hide_enabled", True)
+            self.toggle_auto_hide_mode(auto_hide)
 
             raw_recents = config.get("recent_images", [])
             self.recent_images = []
@@ -1159,6 +1258,8 @@ class OverlayImageViewer(QWidget):
             last_image = config.get("last_image")
             if last_image and os.path.exists(last_image):
                 self.load_image_from_path(last_image)
+            else:
+                self.clear_image()
 
         except Exception as e:
             print(f"Failed to load config: {e}")
@@ -1170,7 +1271,6 @@ class OverlayImageViewer(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    # Set taskbar/window icon
     icon_path = os.path.join(BASE_DIR, "icon.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
