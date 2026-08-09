@@ -1,0 +1,22 @@
+{
+    "qr_data": "this is Just a Test QR",
+    "qr_fg": "#000000",
+    "qr_eye": "#000000",
+    "qr_bg": "#FFFFFF",
+    "transparent_bg": false,
+    "qr_style": "Circle",
+    "qr_eye_style": "Rounded",
+    "center_text": "",
+    "center_text_fg": "#000000",
+    "center_text_bg": "#FFFFFF",
+    "center_border_fg": "#000000",
+    "center_border_width": "0",
+    "enable_frame": true,
+    "frame_style": "Rounded Image",
+    "frame_thickness": "Thick (20px)",
+    "banner_text": "Test QR",
+    "bc_data": "",
+    "bc_type": "code128",
+    "bc_fg": "#000000",
+    "bc_bg": "#FFFFFF"
+}

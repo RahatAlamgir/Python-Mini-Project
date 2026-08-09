@@ -1,0 +1,1 @@
+pip install customtkinter pillow qrcode python-barcode opencv-python
