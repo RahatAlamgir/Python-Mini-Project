@@ -1,7 +1,7 @@
 {
-    "x": 519,
-    "y": 435,
-    "width": 232,
+    "x": 366,
+    "y": 204,
+    "width": 885,
     "height": 516,
     "opacity": 90,
     "transparency_enabled": false,
@@ -16,5 +16,6 @@
     "max_height_preset": 0.5,
     "auto_hide_enabled": true,
     "recent_images": [],
-    "last_image": null
+    "last_image": null,
+    "hotkey_sequence": "Ctrl+Alt+H"
 }

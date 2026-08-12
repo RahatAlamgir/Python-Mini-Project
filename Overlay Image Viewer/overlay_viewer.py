@@ -3,6 +3,9 @@ import os
 import json
 import shutil
 import requests
+import ctypes
+from ctypes import wintypes
+
 from PySide6.QtCore import Qt, QPoint, QRect, QByteArray, QEvent, QTimer
 from PySide6.QtGui import (
     QPixmap, QImage, QDragEnterEvent, QDropEvent, QAction, QColor, 
@@ -11,8 +14,34 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QMenu, QFileDialog, QSizeGrip,
-    QListWidget, QListWidgetItem, QDialog, QMessageBox, QSplitter, QWidgetAction, QInputDialog, QFrame
+    QListWidget, QListWidgetItem, QDialog, QMessageBox, QSplitter, 
+    QWidgetAction, QInputDialog, QKeySequenceEdit
 )
+
+# --- Windows API Constants & Functions for Click Pass-Through & Global Hotkeys ---
+IS_WINDOWS = sys.platform == "win32"
+
+if IS_WINDOWS:
+    user32 = ctypes.windll.user32
+
+    # 32-bit / 64-bit compatibility for Window Long calls
+    if ctypes.sizeof(ctypes.c_void_p) == 8:
+        GetWindowLong = user32.GetWindowLongPtrW
+        SetWindowLong = user32.SetWindowLongPtrW
+    else:
+        GetWindowLong = user32.GetWindowLongW
+        SetWindowLong = user32.SetWindowLongW
+
+    GWL_EXSTYLE = -20
+    WS_EX_TRANSPARENT = 0x00000020
+    WS_EX_LAYERED = 0x00080000
+    WM_HOTKEY = 0x0312
+
+    MOD_ALT = 0x0001
+    MOD_CONTROL = 0x0002
+    MOD_SHIFT = 0x0004
+    MOD_WIN = 0x0008
+    HOTKEY_ID = 9001
 
 # Base application directory
 if getattr(sys, 'frozen', False):
@@ -128,7 +157,6 @@ class ImageDisplayWidget(QLabel):
         self.apply_empty_style(True)
 
     def apply_empty_style(self, is_empty):
-        """Shows a solid dark background when no image is loaded."""
         if is_empty:
             self.setStyleSheet("""
                 QLabel {
@@ -402,6 +430,41 @@ class ImageManagerDialog(QDialog):
             self.info_label.setText("")
 
 
+class HotkeyConfigDialog(QDialog):
+    """Dialog allowing the user to configure a custom hotkey sequence."""
+    def __init__(self, current_key, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Lock Hotkey")
+        self.setFixedSize(320, 140)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.setStyleSheet("""
+            QDialog { background-color: #121214; color: #E4E4E7; }
+            QLabel { color: #E4E4E7; font-size: 12px; }
+            QKeySequenceEdit { background-color: #18181B; color: #3B82F6; border: 1px solid #3F3F46; padding: 6px; border-radius: 4px; font-weight: bold; }
+            QPushButton { background-color: #27272A; color: #E4E4E7; border: 1px solid #3F3F46; border-radius: 4px; padding: 6px 12px; }
+            QPushButton:hover { background-color: #3F3F46; }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Press shortcut key combination:", self))
+        
+        self.key_editor = QKeySequenceEdit(QKeySequence(current_key), self)
+        layout.addWidget(self.key_editor)
+
+        btn_box = QHBoxLayout()
+        save_btn = QPushButton("Save Hotkey", self)
+        save_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel", self)
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_box.addWidget(save_btn)
+        btn_box.addWidget(cancel_btn)
+        layout.addLayout(btn_box)
+
+    def get_sequence_str(self):
+        return self.key_editor.keySequence().toString()
+
+
 class OverlayImageViewer(QWidget):
     def __init__(self):
         super().__init__()
@@ -421,17 +484,27 @@ class OverlayImageViewer(QWidget):
         self.snap_margin = 25
         self.snipper = None
         
+        # Hotkey and Ghost Mode
+        self.hotkey_sequence = "Ctrl+Shift+H"
+        self.hotkey_shortcut = None
+        self.hotkey_active = False
+
+        # Preserved State Storage
+        self.saved_always_on_top = True
+        self.saved_auto_hide_enabled = True
+
         # Auto-hide toggles
         self.auto_hide_enabled = True
         self.controls_visible = True
 
-        # Auto-hide timer for controls, title bar, and border frame
+        # Auto-hide timer
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(self.hide_controls)
 
         self.init_ui()
         self.load_config()
+        self.setup_hotkey()
         self.setAcceptDrops(True)
 
     def init_ui(self):
@@ -450,7 +523,7 @@ class OverlayImageViewer(QWidget):
         container_layout.setContentsMargins(4, 4, 4, 4)
         container_layout.setSpacing(2)
 
-        # Top Control Bar (Title Bar)
+        # Top Control Bar
         self.control_bar_container = QWidget(self.container)
         self.control_bar = QHBoxLayout(self.control_bar_container)
         self.control_bar.setContentsMargins(2, 0, 2, 0)
@@ -476,7 +549,7 @@ class OverlayImageViewer(QWidget):
         
         container_layout.addWidget(self.image_label, stretch=1)
 
-        # Bottom Bar Wrapper (Size Grip)
+        # Bottom Bar Wrapper
         self.bottom_bar_container = QWidget(self.container)
         bottom_bar = QHBoxLayout(self.bottom_bar_container)
         bottom_bar.setContentsMargins(0, 0, 0, 0)
@@ -496,7 +569,7 @@ class OverlayImageViewer(QWidget):
         self.opacity_slider.setFixedHeight(110)
         self.opacity_slider.valueChanged.connect(self.update_opacity)
 
-        # Shortcuts
+        # Navigation Shortcuts
         self.shortcut_left = QShortcut(QKeySequence(Qt.Key_Left), self)
         self.shortcut_left.activated.connect(self.prev_image)
 
@@ -508,13 +581,113 @@ class OverlayImageViewer(QWidget):
 
         self.apply_container_style()
         
-        # Install global application event filter for reliable mouse tracking
         QApplication.instance().installEventFilter(self)
         self.setMouseTracking(True)
         self.show_controls_temporarily()
 
-    # --- Global Application Mouse Tracking ---
+    # --- Windows Native Global Hotkey Registration ---
+    def setup_hotkey(self):
+        if IS_WINDOWS and self.winId():
+            hwnd = int(self.winId())
+            user32.UnregisterHotKey(hwnd, HOTKEY_ID)
+
+            # Parse string like "Ctrl+Shift+H" into Win32 Modifiers and Key Code
+            modifiers = 0
+            seq_str = self.hotkey_sequence.upper()
+
+            if "CTRL" in seq_str:
+                modifiers |= MOD_CONTROL
+            if "SHIFT" in seq_str:
+                modifiers |= MOD_SHIFT
+            if "ALT" in seq_str:
+                modifiers |= MOD_ALT
+            if "META" in seq_str or "WIN" in seq_str:
+                modifiers |= MOD_WIN
+
+            key_str = seq_str.split("+")[-1].strip()
+            vk_code = ord(key_str[0]) if len(key_str) == 1 and key_str.isalnum() else 0x48 # Default H
+
+            user32.RegisterHotKey(hwnd, HOTKEY_ID, modifiers, vk_code)
+        else:
+            if self.hotkey_shortcut:
+                self.hotkey_shortcut.setEnabled(False)
+                self.hotkey_shortcut.deleteLater()
+            self.hotkey_shortcut = QShortcut(QKeySequence(self.hotkey_sequence), self)
+            self.hotkey_shortcut.setContext(Qt.ApplicationShortcut)
+            self.hotkey_shortcut.activated.connect(self.toggle_hotkey_active_mode)
+
+    def nativeEvent(self, eventType, message):
+        if IS_WINDOWS and eventType == b"windows_generic_MSG":
+            msg = wintypes.MSG.from_address(int(message))
+            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                self.toggle_hotkey_active_mode()
+                return True, 0
+        return super().nativeEvent(eventType, message)
+
+    def set_win32_click_through(self, transparent: bool):
+        """Applies/removes OS-level click-through extended window style."""
+        if IS_WINDOWS and self.winId():
+            hwnd = int(self.winId())
+            current_style = GetWindowLong(hwnd, GWL_EXSTYLE)
+            if transparent:
+                new_style = current_style | WS_EX_TRANSPARENT | WS_EX_LAYERED
+            else:
+                new_style = current_style & ~WS_EX_TRANSPARENT
+            SetWindowLong(hwnd, GWL_EXSTYLE, new_style)
+
+    def prompt_change_hotkey(self):
+        dialog = HotkeyConfigDialog(self.hotkey_sequence, self)
+        if dialog.exec() == QDialog.Accepted:
+            new_seq = dialog.get_sequence_str()
+            if new_seq:
+                self.hotkey_sequence = new_seq
+                self.setup_hotkey()
+                self.rebuild_unified_menu()
+
+    def toggle_hotkey_active_mode(self):
+        self.hotkey_active = not self.hotkey_active
+
+        if self.hotkey_active:
+            # 1. Save Current Settings
+            self.saved_always_on_top = self.always_on_top
+            self.saved_auto_hide_enabled = self.auto_hide_enabled
+
+            # 2. Enable Native Click-Through & Disable standard navigation keys
+            self.set_win32_click_through(True)
+            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            self.shortcut_left.setEnabled(False)
+            self.shortcut_right.setEnabled(False)
+            self.shortcut_paste.setEnabled(False)
+
+            # 3. Pin Top Mode
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+
+            # 4. Hide UI Completely
+            self.auto_hide_enabled = False
+            self.hide_timer.stop()
+            self.controls_visible = False
+            self.control_bar_container.hide()
+            self.bottom_bar_container.hide()
+            self.apply_container_style()
+            self.show()
+        else:
+            # Revert back to interactive mode
+            self.set_win32_click_through(False)
+            self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+            self.shortcut_left.setEnabled(True)
+            self.shortcut_right.setEnabled(True)
+            self.shortcut_paste.setEnabled(True)
+
+            self.toggle_always_on_top(self.saved_always_on_top)
+            self.toggle_auto_hide_mode(self.saved_auto_hide_enabled)
+            self.show_controls_temporarily()
+            self.show()
+
+    # --- Mouse & UI Handling ---
     def eventFilter(self, source, event):
+        if self.hotkey_active:
+            return super().eventFilter(source, event)
+
         if self.auto_hide_enabled:
             if event.type() in (QEvent.MouseMove, QEvent.HoverMove, QEvent.MouseButtonPress, QEvent.Enter):
                 if self.underMouse() or self.rect().contains(self.mapFromGlobal(QGuiApplication.overrideCursor() or self.cursor().pos())):
@@ -528,7 +701,9 @@ class OverlayImageViewer(QWidget):
         return super().eventFilter(source, event)
 
     def show_controls_temporarily(self):
-        """Shows top control bar, border, and size grip for 3 seconds of inactivity."""
+        if self.hotkey_active:
+            return
+
         if not self.controls_visible:
             self.controls_visible = True
             self.control_bar_container.show()
@@ -539,8 +714,7 @@ class OverlayImageViewer(QWidget):
             self.hide_timer.start(3000)
 
     def hide_controls(self):
-        """Hides top control bar, size grip, and window border/background upon timeout."""
-        if not self.auto_hide_enabled:
+        if not self.auto_hide_enabled and not self.hotkey_active:
             return
 
         self.controls_visible = False
@@ -566,8 +740,8 @@ class OverlayImageViewer(QWidget):
         self.rebuild_unified_menu()
 
     def show_context_menu(self, pos):
-        """Displays options menu when right-clicking the image display area."""
-        self.unified_menu.exec(self.image_label.mapToGlobal(pos))
+        if not self.hotkey_active:
+            self.unified_menu.exec(self.image_label.mapToGlobal(pos))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -648,21 +822,22 @@ class OverlayImageViewer(QWidget):
             }}
         """)
 
-    # --- Mouse & Snapping ---
+    # --- Mouse Drag & Magnet Snapping ---
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if not self.hotkey_active and event.button() == Qt.LeftButton:
             self.show_controls_temporarily()
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
-        self.show_controls_temporarily()
-        if event.buttons() == Qt.LeftButton and not self.drag_position.isNull():
-            target_pos = event.globalPosition().toPoint() - self.drag_position
-            if self.snap_enabled:
-                target_pos = self.calculate_snapped_position(target_pos)
-            self.move(target_pos)
-            event.accept()
+        if not self.hotkey_active:
+            self.show_controls_temporarily()
+            if event.buttons() == Qt.LeftButton and not self.drag_position.isNull():
+                target_pos = event.globalPosition().toPoint() - self.drag_position
+                if self.snap_enabled:
+                    target_pos = self.calculate_snapped_position(target_pos)
+                self.move(target_pos)
+                event.accept()
 
     def calculate_snapped_position(self, target_pos):
         screen = QGuiApplication.screenAt(target_pos) or QGuiApplication.primaryScreen()
@@ -688,7 +863,6 @@ class OverlayImageViewer(QWidget):
     def toggle_snap(self, checked):
         self.snap_enabled = checked
 
-    # --- Max Height Preset Logic ---
     def set_max_height_preset(self, ratio):
         self.max_height_preset = ratio
         self.fit_to_image_ratio()
@@ -764,15 +938,16 @@ class OverlayImageViewer(QWidget):
 
     # --- File Handling ---
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
+        if not self.hotkey_active and event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
-        urls = event.mimeData().urls()
-        if urls:
-            file_path = urls[0].toLocalFile()
-            if file_path and self.is_valid_image(file_path):
-                self.import_and_cache_file(file_path)
+        if not self.hotkey_active:
+            urls = event.mimeData().urls()
+            if urls:
+                file_path = urls[0].toLocalFile()
+                if file_path and self.is_valid_image(file_path):
+                    self.import_and_cache_file(file_path)
 
     def is_valid_image(self, file_path):
         valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tiff"}
@@ -806,7 +981,6 @@ class OverlayImageViewer(QWidget):
             self.apply_container_style()
 
     def clear_image(self):
-        """Clears current image selection and resets window background."""
         self.current_image_path = None
         self.current_pixmap = None
         self.image_label.clear()
@@ -950,7 +1124,7 @@ class OverlayImageViewer(QWidget):
         if cached_path in self.recent_images:
             self.recent_images.remove(cached_path)
         self.recent_images.insert(0, cached_path)
-        self.recent_images = self.recent_images[:15]
+        self.recent_images = self.recent_images[:20]
         self.rebuild_unified_menu()
 
     def rebuild_unified_menu(self):
@@ -982,7 +1156,12 @@ class OverlayImageViewer(QWidget):
 
         self.unified_menu.addSeparator()
 
-        # Auto-Hide Toggle Option (Context Menu Only)
+        # Hotkey Configuration Action
+        hotkey_action = QAction(f"⚙ Change Hotkey Lock ({self.hotkey_sequence})...", self)
+        hotkey_action.triggered.connect(self.prompt_change_hotkey)
+        self.unified_menu.addAction(hotkey_action)
+
+        # Auto-Hide Toggle Option
         auto_hide_action = QAction("👁 Toggle Auto-Hide UI", self)
         auto_hide_action.setCheckable(True)
         auto_hide_action.setChecked(self.auto_hide_enabled)
@@ -1201,8 +1380,9 @@ class OverlayImageViewer(QWidget):
             "snap_enabled": self.snap_enabled,
             "max_height_preset": self.max_height_preset,
             "auto_hide_enabled": self.auto_hide_enabled,
-            "recent_images": self.recent_images,
-            "last_image": self.current_image_path
+            "recent_images": self.recent_images[:20],
+            "last_image": self.current_image_path,
+            "hotkey_sequence": self.hotkey_sequence
         }
         try:
             with open(CONFIG_FILE, "w") as f:
@@ -1246,12 +1426,15 @@ class OverlayImageViewer(QWidget):
             auto_hide = config.get("auto_hide_enabled", True)
             self.toggle_auto_hide_mode(auto_hide)
 
+            self.hotkey_sequence = config.get("hotkey_sequence", "Ctrl+Shift+H")
+
             raw_recents = config.get("recent_images", [])
             self.recent_images = []
             for item in raw_recents:
                 path = item if isinstance(item, str) else item.get("cached", "")
                 if path and os.path.exists(path):
                     self.recent_images.append(path)
+            self.recent_images = self.recent_images[:20]
 
             self.rebuild_unified_menu()
 
@@ -1265,6 +1448,8 @@ class OverlayImageViewer(QWidget):
             print(f"Failed to load config: {e}")
 
     def closeEvent(self, event):
+        if IS_WINDOWS and self.winId():
+            user32.UnregisterHotKey(int(self.winId()), HOTKEY_ID)
         self.save_config()
         event.accept()
 
@@ -1277,4 +1462,8 @@ if __name__ == "__main__":
 
     viewer = OverlayImageViewer()
     viewer.show()
+
+    # Re-register hotkey after window handle initialization
+    viewer.setup_hotkey()
+
     sys.exit(app.exec())
