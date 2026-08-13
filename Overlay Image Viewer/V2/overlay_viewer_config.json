@@ -1,0 +1,26 @@
+{
+    "x": 456,
+    "y": 351,
+    "width": 404,
+    "height": 516,
+    "opacity": 90,
+    "transparency_enabled": false,
+    "max_quality_mode": true,
+    "show_mark": false,
+    "show_grid": false,
+    "grid_cols": 3,
+    "grid_rows": 3,
+    "grid_color_key": "white",
+    "always_on_top": true,
+    "snap_enabled": false,
+    "max_height_preset": 0.5,
+    "auto_hide_enabled": true,
+    "managed_images": [
+        {
+            "cached": "D:\\PythonProjects\\Python-Mini-Project\\Overlay Image Viewer\\V2\\temp_images\\Pit_of_heresy_map_2.png",
+            "locked": true
+        }
+    ],
+    "last_image": "D:\\PythonProjects\\Python-Mini-Project\\Overlay Image Viewer\\V2\\temp_images\\Pit_of_heresy_map_2.png",
+    "hotkey_sequence": "Ctrl+Shift+H"
+}
