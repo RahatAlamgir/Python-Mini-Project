@@ -1,0 +1,9 @@
+{
+  "class_name": "UserModel",
+  "generator": "Standard Dart",
+  "nullable": true,
+  "copy_with": false,
+  "equatable": false,
+  "url": "",
+  "json_data": "{\n  \"id\": 1,\n  \"name\": \"Alex Smith\",\n  \"is_admin\": true,\n  \"scores\": [\n    95.5,\n    88.0\n  ],\n  \"profile\": {\n    \"bio\": \"Flutter Developer\",\n    \"github\": \"alexsmith\"\n  }\n}"
+}
